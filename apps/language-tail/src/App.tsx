@@ -1,13 +1,25 @@
-import { useState, type FormEvent } from "react";
-
-// Default credentials
-const VALID_EMAIL = "admin@example.com";
-const VALID_PASSWORD = "password123";
+import { useState, useEffect, type FormEvent } from "react";
+import {
+  authenticateUser,
+  registerUser,
+  getSession,
+  saveSession,
+  clearSession,
+} from "./auth";
 
 interface LoginForm {
   email: string;
   password: string;
 }
+
+interface SignupForm {
+  name: string;
+  email: string;
+  password: string;
+  confirm: string;
+}
+
+type View = "login" | "signup";
 
 const NAV_ITEMS = [
   { icon: "🏠", label: "Home", id: "home" },
@@ -90,6 +102,168 @@ const PRODUCTS = [
 function getDisplayName(email: string): string {
   const name = email.split("@")[0];
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// ── Signup Page ──
+function SignupPage({
+  onSignIn,
+  onSuccess,
+}: {
+  onSignIn: () => void;
+  onSuccess: (email: string) => void;
+}) {
+  const [form, setForm] = useState<SignupForm>({
+    name: "",
+    email: "",
+    password: "",
+    confirm: "",
+  });
+  const [fieldErrors, setFieldErrors] = useState<Partial<SignupForm>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const update = (field: keyof SignupForm, value: string) => {
+    setForm((f) => ({ ...f, [field]: value }));
+    setFieldErrors((fe) => ({ ...fe, [field]: undefined }));
+    setError(null);
+  };
+
+  const validate = (): boolean => {
+    const errs: Partial<SignupForm> = {};
+    if (!form.name.trim()) errs.name = "Full name is required.";
+    if (!form.email.trim()) errs.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+      errs.email = "Enter a valid email address.";
+    if (!form.password) errs.password = "Password is required.";
+    else if (form.password.length < 6)
+      errs.password = "Password must be at least 6 characters.";
+    if (!form.confirm) errs.confirm = "Please confirm your password.";
+    else if (form.confirm !== form.password)
+      errs.confirm = "Passwords do not match.";
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!validate()) return;
+    setLoading(true);
+    await new Promise((r) => setTimeout(r, 500));
+    setLoading(false);
+    const result = registerUser(form.email, form.password, form.name);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    saveSession(form.email.toLowerCase().trim());
+    onSuccess(form.email.toLowerCase().trim());
+  };
+
+  const passwordsMatch =
+    form.confirm.length > 0 && form.password === form.confirm;
+
+  return (
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-header">
+          <div className="login-logo">⚡</div>
+          <h1>Create account</h1>
+          <p>Join ShopZone today — it's free</p>
+        </div>
+
+        <form onSubmit={handleSubmit} noValidate>
+          <div className="field">
+            <label htmlFor="su-name">Full name</label>
+            <input
+              id="su-name"
+              type="text"
+              placeholder="Jane Smith"
+              autoComplete="name"
+              value={form.name}
+              onChange={(e) => update("name", e.target.value)}
+            />
+            {fieldErrors.name && (
+              <span className="field-error">{fieldErrors.name}</span>
+            )}
+          </div>
+
+          <div className="field">
+            <label htmlFor="su-email">Email</label>
+            <input
+              id="su-email"
+              type="email"
+              placeholder="you@example.com"
+              autoComplete="email"
+              value={form.email}
+              onChange={(e) => update("email", e.target.value)}
+            />
+            {fieldErrors.email && (
+              <span className="field-error">{fieldErrors.email}</span>
+            )}
+          </div>
+
+          <div className="field">
+            <label htmlFor="su-password">Password</label>
+            <input
+              id="su-password"
+              type="password"
+              placeholder="Min. 6 characters"
+              autoComplete="new-password"
+              value={form.password}
+              onChange={(e) => update("password", e.target.value)}
+            />
+            {fieldErrors.password && (
+              <span className="field-error">{fieldErrors.password}</span>
+            )}
+          </div>
+
+          <div className="field">
+            <label htmlFor="su-confirm">
+              Confirm password
+              {passwordsMatch && (
+                <span className="match-check"> ✓ Passwords match</span>
+              )}
+            </label>
+            <input
+              id="su-confirm"
+              type="password"
+              placeholder="Re-enter password"
+              autoComplete="new-password"
+              value={form.confirm}
+              onChange={(e) => update("confirm", e.target.value)}
+              className={
+                fieldErrors.confirm
+                  ? "input-error"
+                  : passwordsMatch
+                    ? "input-ok"
+                    : ""
+              }
+            />
+            {fieldErrors.confirm && (
+              <span className="field-error">{fieldErrors.confirm}</span>
+            )}
+          </div>
+
+          {error && (
+            <div className="error-box">
+              <p className="error-msg">{error}</p>
+            </div>
+          )}
+
+          <button type="submit" className="login-btn" disabled={loading}>
+            {loading ? "Creating account…" : "Create account"}
+          </button>
+        </form>
+
+        <p className="signup-prompt">
+          Already have an account?{" "}
+          <button className="link-btn" onClick={onSignIn}>
+            Sign in
+          </button>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function HomePage({
@@ -229,11 +403,24 @@ function HomePage({
 }
 
 export default function App() {
+  // Restore session from localStorage on first render
+  const [loggedInEmail, setLoggedInEmail] = useState<string | null>(() =>
+    getSession(),
+  );
+  const [view, setView] = useState<View>("login");
   const [form, setForm] = useState<LoginForm>({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [wrongCreds, setWrongCreds] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loggedInEmail, setLoggedInEmail] = useState<string | null>(null);
+
+  // Keep session storage in sync whenever loggedInEmail changes
+  useEffect(() => {
+    if (loggedInEmail) {
+      saveSession(loggedInEmail);
+    } else {
+      clearSession();
+    }
+  }, [loggedInEmail]);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -249,8 +436,9 @@ export default function App() {
     await new Promise((r) => setTimeout(r, 600));
     setLoading(false);
 
-    if (form.email === VALID_EMAIL && form.password === VALID_PASSWORD) {
-      setLoggedInEmail(form.email);
+    const result = authenticateUser(form.email, form.password);
+    if (result) {
+      setLoggedInEmail(result);
     } else {
       setWrongCreds(true);
       setError("Those credentials don't match. Please try again.");
@@ -262,10 +450,20 @@ export default function App() {
     setForm({ email: "", password: "" });
     setError(null);
     setWrongCreds(false);
+    setView("login");
   };
 
   if (loggedInEmail) {
     return <HomePage onLogout={handleLogout} email={loggedInEmail} />;
+  }
+
+  if (view === "signup") {
+    return (
+      <SignupPage
+        onSignIn={() => setView("login")}
+        onSuccess={(email) => setLoggedInEmail(email)}
+      />
+    );
   }
 
   return (
@@ -279,9 +477,7 @@ export default function App() {
 
         <div className="credentials-hint">
           <span>Demo credentials</span>
-          <code>
-            {VALID_EMAIL} / {VALID_PASSWORD}
-          </code>
+          <code>admin@example.com / password123</code>
         </div>
 
         <form onSubmit={handleSubmit} noValidate>
@@ -340,7 +536,10 @@ export default function App() {
         </p>
 
         <p className="signup-prompt">
-          Don't have an account? <a href="#">Sign up</a>
+          Don't have an account?{" "}
+          <button className="link-btn" onClick={() => setView("signup")}>
+            Sign up
+          </button>
         </p>
       </div>
     </div>
