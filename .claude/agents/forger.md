@@ -1,5 +1,5 @@
 ---
-name: temp-test-creator
+name: forger
 model: sonnet
 description: Run noob-testcase skill to generate test cases (BDD and traditional) from a JIRA ticket or epic — creates a session, performs deep codebase analysis, writes direct functional / impact regression / general regression test cases, ends the session. Does not clean up repos or artifacts. Usage - provide a JIRA issue key (e.g., EPIC-7679 or PROJ-12345).
 tools:
