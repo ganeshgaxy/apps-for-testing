@@ -11,10 +11,10 @@ Execute ONE test case per invocation via browser automation. Invoke repeatedly f
 
 ```bash
 # runpack list --pack returns ARRAY (not {entries: [...]})
-noob-tester runpack list --pack $RUNPACK_ID --json | jq '.[] | select(.tc_title != null) | {id, status, tc_title}'
+noob-tester runpack list --pack $RUNPACK_ID --json | jq '.[] | {id, status, test_case_id}'
 
-# Find specific entry (always null-check tc_title)
-noob-tester runpack list --pack $RUNPACK_ID --json | jq '.[] | select(.tc_title != null and (.tc_title | test("keyword"; "i"))) | {id, status}'
+# Find specific entry by status (e.g., claimed, failed, blocked)
+noob-tester runpack list --pack $RUNPACK_ID --json | jq '.[] | select(.status != "passed")'
 
 # query plan returns SINGLE OBJECT: {plan, steps}
 noob-tester query plan --ticket <TICKET-ID> --json | jq '.plan.id'
@@ -56,7 +56,7 @@ Decide which test case to run **before** login. There are two modes:
 
 ```bash
 # Step 1: Capture raw output WITHOUT piping to jq
-CLAIM_OUTPUT=$(noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk 2>&1)
+CLAIM_OUTPUT=$(noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk)
 
 # Step 2: Save to temp file for inspection if output is large
 echo "$CLAIM_OUTPUT" > /tmp/claim_output.json
@@ -74,7 +74,7 @@ DONE=$(echo "$ENTRY" | jq -r '.done // empty')
 
 ```bash
 # Claim once, save output, inspect, then parse
-CLAIM_OUTPUT=$(noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk 2>&1)
+CLAIM_OUTPUT=$(noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk)
 ENTRY=$(echo "$CLAIM_OUTPUT")
 
 # Check if all tests are done
@@ -85,13 +85,22 @@ if [ "$DONE" = "true" ]; then
 fi
 ```
 
-**Mode B: Retry a specific test case by name**
+**Mode B: Retry a specific test case by name or test_case_id**
 
 Use when the user asks to rerun a previously failed/passed/blocked test.
 
+⚠️ **Important field distinction:**
+
+- `.id` = the entry ID (run pack entry ID) — unique per run
+- `.test_case_id` = the actual test case ID — same across runs
+
 ```bash
-# Retry in a specific run pack
+# Retry by test case NAME (preferred)
 noob-tester runpack retry --name "<test-case-name>" --pack $RUNPACK_ID
+
+# OR retry by test_case_id directly (if you have the ID)
+noob-tester runpack list --pack $RUNPACK_ID --json | jq '.[] | select(.test_case_id == "<test-case-id>")' > /tmp/entry.json
+noob-tester runpack retry --pack $RUNPACK_ID --entry $(jq -r '.id' /tmp/entry.json)
 
 # Retry in the latest run pack for the ticket (no --pack needed)
 noob-tester runpack retry --name "<test-case-name>"
