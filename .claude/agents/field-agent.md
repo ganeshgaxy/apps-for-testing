@@ -86,7 +86,7 @@ This skill executes the claimed test case. It expects `$ENTRY` from Step 1a.
 Test execution workflow:
 
 1. Extract entry values (id, title, format)
-2. Initialize session + resolve target URL + create UI map
+2. Initialize session + resolve target URL + create UI map → **Save SESSION_ID, RUN_ID, RUNPACK_ID, MAP_ID for Step 2**
 3. Login using auth-resolve credentials
 4. Execute test steps with capture-page at every page load
 5. Deep inspection (network, console, UI, accessibility) after every capture
@@ -94,6 +94,17 @@ Test execution workflow:
 7. Handle failures — retry from fresh snapshot, trace root cause in code
 8. Record result (passed/failed/blocked)
 9. End session
+
+**CRITICAL: Preserve these variables for Step 2:**
+
+```bash
+SESSION_ID=<from init>
+RUN_ID=<from init>
+RUNPACK_ID=<from init>
+MAP_ID=<from uimap resolve/create>
+TICKET_ID=<original ticket>
+TARGET_URL=<resolved URL>
+```
 
 **Do NOT clean up repos, indexes, or artifacts.**
 
@@ -105,15 +116,27 @@ Test execution workflow:
 
 If the test failed or was blocked, follow `.claude/skills/noob-rca/SKILL.md` exactly.
 
+**Use the variables preserved from Step 1b:**
+
+```bash
+# These are available from noob-explore execution:
+# - $RUN_ID — for logging issues and accessing captures
+# - $RUNPACK_ID — for querying failed entries and saving RCA
+# - $SESSION_ID — for session context
+# - $MAP_ID — for linking issues to UI elements
+# - $TICKET_ID — for checking tech issues
+```
+
 This classifies the failure (env/flaky/bug/data/network), examines artifacts, and saves a structured RCA:
 
-1. Get the failed entry from the run pack
+1. Get the failed entry from the run pack using `$RUNPACK_ID`
 2. Clear previous RCA for this pack
-3. Read artifacts — captures, console, HAR
+3. Read artifacts — captures, console, HAR for the failed entry
 4. Check patterns and tech issues
 5. Classify using the decision tree (network/auth/timeout/env/data/flaky/bug/unknown)
-6. Save RCA result with classification, confidence, cause, evidence, and suggested action
-7. Generate summary
+6. **FLAG ISSUE** (if actual_bug) — log noob-tester issue with screenshot, console, HAR, map ID
+7. Save RCA result with classification, confidence, cause, evidence, and suggested action
+8. Generate summary
 
 ---
 
