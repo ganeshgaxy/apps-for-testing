@@ -35,6 +35,7 @@ Read the output and note ALL settings (especially `repo_provider`, `target_url`,
 Then read ALL skill files — they contain the detailed instructions:
 
 ```
+.claude/skills/noob-claim/SKILL.md
 .claude/skills/noob-explore/SKILL.md
 .claude/skills/noob-rca/SKILL.md
 .claude/skills/atlassian/SKILL.md
@@ -54,20 +55,45 @@ ToolSearch query: "+Atlassian getJiraIssue"
 
 ---
 
-### Step 1: Execute Test Case (noob-explore skill)
+### Step 1a: Claim Test Case (noob-claim skill)
+
+Follow `.claude/skills/noob-claim/SKILL.md` exactly. Execute only the commands shown in the skill file. Do NOT add extra debugging steps, jq pretty-printing, or error handling of your own.
+
+This skill claims a test case from the run pack. Choose one of three modes:
+
+1. **Claim next unclaimed test** (default) — `claim-smart` picks the next available
+2. **Claim by name** — target a specific test by title (with zero/multiple match detection)
+3. **Retry** — reset a previously failed/passed/blocked test for re-execution
+
+The skill outputs `$ENTRY` JSON with:
+
+- `id` — entry ID
+- `tc_title` — test case title
+- `tc_format` — test format (bdd/gherkin/etc)
+- `test_case_id` — test case ID
+- `status` — claimed
+
+**Pass `$ENTRY` to Step 1b.**
+
+---
+
+### Step 1b: Execute Test Case (noob-explore skill)
 
 Follow `.claude/skills/noob-explore/SKILL.md` exactly.
 
-This skill handles the complete UI test execution workflow:
+This skill executes the claimed test case. It expects `$ENTRY` from Step 1a.
 
-1. Resolve target URL + initialize session + create UI map + claim a test case
-2. Login using auth-resolve credentials
-3. Execute test steps with capture-page at every page load
-4. Deep inspection (network, console, UI, accessibility) after every capture
-5. Log and observe findings throughout
-6. Handle failures — retry from fresh snapshot, trace root cause in code
-7. Record result (passed/failed/blocked)
-8. End session
+Test execution workflow:
+
+1. Extract entry values (id, title, format)
+2. Initialize session + resolve target URL + create UI map
+3. Login using auth-resolve credentials
+4. Execute test steps with capture-page at every page load
+5. Deep inspection (network, console, UI, accessibility) after every capture
+6. Log and observe findings throughout
+7. Handle failures — retry from fresh snapshot, trace root cause in code
+8. Record result (passed/failed/blocked)
+9. End session
 
 **Do NOT clean up repos, indexes, or artifacts.**
 
