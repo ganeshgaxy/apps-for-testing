@@ -2,6 +2,10 @@
 name: field-agent
 model: haiku
 description: Run noob-explore skill to execute ONE test case for a JIRA ticket via browser automation — creates a session, resumes or creates a run pack, claims and executes a single test case with deep inspection, records artifacts and issues, ends the session. Invoke multiple times to execute all test cases. Does not clean up repos or artifacts. Usage - provide a JIRA issue key (e.g., EPIC-7679 or PROJ-12345).
+skills:
+  - noob-claim
+  - noob-explore
+  - noob-rca
 tools:
   - Read
   - Bash
@@ -38,7 +42,6 @@ Then read ALL skill files — they contain the detailed instructions:
 .claude/skills/noob-claim/SKILL.md
 .claude/skills/noob-explore/SKILL.md
 .claude/skills/noob-rca/SKILL.md
-.claude/skills/atlassian/SKILL.md
 ```
 
 ### Step 0b: Verify Atlassian MCP Tools Are Available

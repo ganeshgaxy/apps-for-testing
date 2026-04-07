@@ -42,7 +42,7 @@ RUNPACK_ID=$(echo "$INIT" | jq -r '.runPackId')
 
 ```bash
 # Save output to file to avoid shell escaping issues with deeply nested JSON
-noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk > /tmp/claim.json
+noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui > /tmp/claim.json
 ENTRY=$(cat /tmp/claim.json)
 
 # Check if all tests are done
@@ -109,7 +109,7 @@ Use when retrying a previously failed/passed/blocked test.
 noob-tester runpack retry --name "<tc_title>" --pack $RUNPACK_ID
 
 # Now claim it (will be at top of queue)
-noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk > /tmp/claim.json
+noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui > /tmp/claim.json
 ENTRY=$(cat /tmp/claim.json)
 ENTRY_ID=$(echo "$ENTRY" | jq -r '.id')
 TC_TITLE=$(echo "$ENTRY" | jq -r '.tc_title')
@@ -125,7 +125,7 @@ ENTRY_ID=$(echo "$ENTRY" | jq -r '.id')
 # Reset and claim
 noob-tester runpack retry --pack $RUNPACK_ID --entry $ENTRY_ID
 
-noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk > /tmp/claim.json
+noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui > /tmp/claim.json
 ENTRY=$(cat /tmp/claim.json)
 ```
 
@@ -135,7 +135,7 @@ ENTRY=$(cat /tmp/claim.json)
 noob-tester runpack retry --name "<tc_title>"
 
 # Then claim from the latest run pack
-noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui --risk > /tmp/claim.json
+noob-tester claim-smart --pack $RUNPACK_ID --ticket <TICKET-ID> --session $SESSION_ID --run $RUN_ID --layer ui > /tmp/claim.json
 ENTRY=$(cat /tmp/claim.json)
 ```
 
