@@ -62,52 +62,17 @@ ToolSearch query: "+Atlassian getJiraIssue"
 
 Follow `.claude/skills/noob-claim/SKILL.md` exactly. Execute only the commands shown in the skill file. Do NOT add extra debugging steps, jq pretty-printing, or error handling of your own.
 
-This skill claims a test case from the run pack. Choose one of three modes:
+The skill outputs `$CLAIM` which contains the claimed entry and full test case data.
 
-1. **Claim next unclaimed test** (default) — `claim-smart` picks the next available
-2. **Claim by name** — target a specific test by title (with zero/multiple match detection)
-3. **Retry** — reset a previously failed/passed/blocked test for re-execution
-
-The skill outputs `$ENTRY` JSON with:
-
-- `id` — entry ID
-- `tc_title` — test case title
-- `tc_format` — test format (bdd/gherkin/etc)
-- `test_case_id` — test case ID
-- `status` — claimed
-
-**Pass `$ENTRY` to Step 1b.**
+**Pass `$CLAIM` to Step 1b.**
 
 ---
 
 ### Step 1b: Execute Test Case (noob-explore skill)
 
-Follow `.claude/skills/noob-explore/SKILL.md` exactly.
+Follow `.claude/skills/noob-explore/SKILL.md` exactly. This skill executes the claimed test case using `$CLAIM` from Step 1a.
 
-This skill executes the claimed test case. It expects `$ENTRY` from Step 1a.
-
-Test execution workflow:
-
-1. Extract entry values (id, title, format)
-2. Initialize session + resolve target URL + create UI map → **Save SESSION_ID, RUN_ID, RUNPACK_ID, MAP_ID for Step 2**
-3. Login using auth-resolve credentials
-4. Execute test steps with capture-page at every page load
-5. Deep inspection (network, console, UI, accessibility) after every capture
-6. Log and observe findings throughout
-7. Handle failures — retry from fresh snapshot, trace root cause in code
-8. Record result (passed/failed/blocked)
-9. End session
-
-**CRITICAL: Preserve these variables for Step 2:**
-
-```bash
-SESSION_ID=<from init>
-RUN_ID=<from init>
-RUNPACK_ID=<from init>
-MAP_ID=<from uimap resolve/create>
-TICKET_ID=<original ticket>
-TARGET_URL=<resolved URL>
-```
+**Preserve the SESSION_ID, RUN_ID, and RUNPACK_ID from noob-explore execution for use in Step 2 (RCA).**
 
 **Do NOT clean up repos, indexes, or artifacts.**
 
@@ -117,29 +82,7 @@ TARGET_URL=<resolved URL>
 
 **Skip this step entirely if the test passed.**
 
-If the test failed or was blocked, follow `.claude/skills/noob-rca/SKILL.md` exactly.
-
-**Use the variables preserved from Step 1b:**
-
-```bash
-# These are available from noob-explore execution:
-# - $RUN_ID — for logging issues and accessing captures
-# - $RUNPACK_ID — for querying failed entries and saving RCA
-# - $SESSION_ID — for session context
-# - $MAP_ID — for linking issues to UI elements
-# - $TICKET_ID — for checking tech issues
-```
-
-This classifies the failure (env/flaky/bug/data/network), examines artifacts, and saves a structured RCA:
-
-1. Get the failed entry from the run pack using `$RUNPACK_ID`
-2. Clear previous RCA for this pack
-3. Read artifacts — captures, console, HAR for the failed entry
-4. Check patterns and tech issues
-5. Classify using the decision tree (network/auth/timeout/env/data/flaky/bug/unknown)
-6. **FLAG ISSUE** (if actual_bug) — log noob-tester issue with screenshot, console, HAR, map ID
-7. Save RCA result with classification, confidence, cause, evidence, and suggested action
-8. Generate summary
+If the test failed or was blocked, follow `.claude/skills/noob-rca/SKILL.md` exactly. Use SESSION_ID, RUN_ID, and RUNPACK_ID from Step 1b.
 
 ---
 
