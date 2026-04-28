@@ -13,10 +13,15 @@ Orchestrate visual testing agents for a ticket with zero race conditions. Create
 
 ```bash
 TICKET_ID="<TICKET-ID>"
-MODE="<baseline|verification>"   # user specifies baseline or verification
+MODE="${1:-baseline}"   # passed by calling agent: baseline or verification
 
 AGENTS=$(noob-tester qa-pool list --ticket "$TICKET_ID" --json)
 AGENT_COUNT=$(echo "$AGENTS" | jq 'length')
+
+if [ "$AGENT_COUNT" -eq 0 ]; then
+  echo "No QA pool agents configured for $TICKET_ID."
+  exit 1
+fi
 ```
 
 **If config found and user asked to update something:**
@@ -51,103 +56,50 @@ AGENT_COUNT=$(echo "$AGENTS" | jq 'length')
 
 ---
 
-## Step 2 — Enumerate Pending Visual Test Cases (with Visual Run Check)
+## Step 2 — Get Latest Visual Run (by mode) and Enumerate Pending Entries
 
-`MAX_SPAWNS` controls how many agents are launched. Default is **5**. The user can say "run 10 agents" or "spawn 3" to override. Pick this up from the user's request before running.
+`MAX_SPAWNS` controls how many agents are launched. Default is **5**. Override if user specifies a number.
 
 ```bash
 MAX_SPAWNS=5   # default — override if user specified a number
 
-# Fetch all visual test cases for the ticket
-VISUAL_TCS=$(noob-tester visual-tc list --ticket "$TICKET_ID" --json)
-TC_COUNT=$(echo "$VISUAL_TCS" | jq 'length')
+# Get the latest visual run for this ticket in the specified mode
+ALL_RUNS=$(noob-tester visual-run list --ticket "$TICKET_ID" --json)
+RECENT_RUN=$(echo "$ALL_RUNS" | jq --arg mode "$MODE" '.[] | select(.mode == $mode) | . // empty' | head -1)
 
-if [ "$TC_COUNT" -eq 0 ]; then
-  echo "No visual test cases for $TICKET_ID. Nothing to run."
-  exit 0
-fi
-
-# ── Visual Run Check ───────────────────────────────────────────────────────
-# Get the most recent visual run for this ticket (list is ordered newest-first)
-RECENT_RUN=$(noob-tester visual-run list --ticket "$TICKET_ID" --json \
-  | jq -r '.[0] // empty')
-RECENT_RUN_ID=$(echo "$RECENT_RUN" | jq -r '.id // empty')
-
-CLAIMED_TC_IDS="[]"
-if [ -n "$RECENT_RUN_ID" ]; then
-  # Fetch all entries in the most recent visual run
-  RUN_ENTRIES=$(noob-tester visual-run get "$RECENT_RUN_ID" --entries \
-    | jq '.entries // []')
-
-  # Build a set of visual_tc_ids that are already claimed / running / done
-  # Statuses to exclude: running, passed, failed, skipped
-  # We keep 'pending' ones — those are still fair game to dispatch
-  CLAIMED_TC_IDS=$(echo "$RUN_ENTRIES" | jq '
-    [.[] | select(
-      .status == "running" or
-      .status == "passed" or
-      .status == "failed" or
-      .status == "skipped"
-    ) | .visual_tc_id]
-  ')
-
-  echo "Recent visual run: $RECENT_RUN_ID — $(echo "$CLAIMED_TC_IDS" | jq 'length') already claimed/done entries excluded."
-fi
-# ────────────────────────────────────────────────────────────────────────────
-
-# Keep only visual test cases NOT already claimed/done in the most recent run.
-PENDING=$(echo "$VISUAL_TCS" | jq --argjson claimed "$CLAIMED_TC_IDS" '
-  [.[] |
-    select(.id as $id | $claimed | index($id) | not)
-  ]
-  | .[:'"$MAX_SPAWNS"']
-')
-PENDING_COUNT=$(echo "$PENDING" | jq 'length')
-
-if [ "$PENDING_COUNT" -eq 0 ]; then
-  echo "No unclaimed visual test cases remaining for $TICKET_ID. Nothing to run."
-  exit 0
-fi
-
-echo "Dispatching $PENDING_COUNT visual test cases (max: $MAX_SPAWNS, after excluding already-claimed entries)."
-
-# ── Create Visual Run and Populate Entries ─────────────────────────────────
-# Get the first agent's target info for the visual run
-FIRST_TARGET=$(echo "$AGENTS" | jq -r '.[0].target // ""')
-FIRST_ROLE=$(echo "$AGENTS" | jq -r '.[0].role // "default"')
-
-# Resolve target URL
-TARGET_URL=$(noob-tester secrets target list --json | jq -r '.[] | select(.name == "'"$FIRST_TARGET"'") | .url')
-if [ -z "$TARGET_URL" ] || [ "$TARGET_URL" = "null" ]; then
-  echo "ERROR: Could not resolve URL for target '$FIRST_TARGET'"
-  noob-tester secrets target list --json | jq '.[].name'
+if [ -z "$RECENT_RUN" ] || [ "$RECENT_RUN" = "null" ]; then
+  echo "No existing visual run found for $TICKET_ID in mode '$MODE'. Create one first with noob-tester visual-run start."
   exit 1
 fi
 
-# Create the visual run
-VISUAL_RUN_ID=$(noob-tester visual-run start \
-  --ticket "$TICKET_ID" \
-  --mode "$MODE" \
-  --target-url "$TARGET_URL" \
-  --secret-target "$FIRST_TARGET" \
-  --secret-role "$FIRST_ROLE" | jq -r '.visualRunId')
+VISUAL_RUN_ID=$(echo "$RECENT_RUN" | jq -r '.id')
 
-echo "Created visual run: $VISUAL_RUN_ID (mode: $MODE)"
+echo "Using visual run: $VISUAL_RUN_ID (mode: $MODE)"
 
-# Populate one pending entry per visual test case in PENDING
-echo "$PENDING" | jq -r '.[].id' | while read -r TC_ID; do
-  noob-tester visual-run entry-create \
-    --run "$VISUAL_RUN_ID" --tc "$TC_ID" --ticket "$TICKET_ID" > /dev/null
-done
+# Fetch all entries in the visual run
+RUN_ENTRIES=$(noob-tester visual-run get "$VISUAL_RUN_ID" --entries | jq '.entries // []')
 
-echo "$PENDING_COUNT visual test case entries queued in run $VISUAL_RUN_ID."
+# Filter to pending entries only (exclude running, passed, failed, skipped)
+PENDING=$(echo "$RUN_ENTRIES" | jq '
+  [.[] | select(.status == "pending")]
+  | .[:'"$MAX_SPAWNS"']
+')
+
+PENDING_COUNT=$(echo "$PENDING" | jq 'length')
+
+if [ "$PENDING_COUNT" -eq 0 ]; then
+  echo "No pending visual test case entries in run $VISUAL_RUN_ID. Nothing to run."
+  exit 0
+fi
+
+echo "Dispatching $PENDING_COUNT pending visual test case entries (max: $MAX_SPAWNS)."
 ```
 
 ---
 
-## Step 3 — Pre-Claim and Build Per-Test-Case Invocations
+## Step 3 — Assign Pending Entries Round-Robin and Pre-Claim
 
-**Pre-claim all visual test cases** using `visual-run claim-next`, then cycle through the configured agent configs using round-robin index. Each visual test case gets its own invocation with a claim file containing all needed data.
+Distribute pending visual run entries round-robin across agent configs, then pre-claim each one.
 
 ```bash
 # Build an array of agent configs for round-robin
@@ -160,9 +112,9 @@ AGENT_DIRS=($(echo "$AGENTS" | jq -r '.[].launch_dir // ""'))
 i=0
 LAUNCHES=()
 
-# Pre-claim and launch visual test cases
-echo "$PENDING" | jq -c '.[]' | while read -r VTC; do
-  TITLE=$(echo "$VTC" | jq -r '.title')
+# Assign and pre-claim visual test case entries
+echo "$PENDING" | jq -c '.[]' | while read -r ENTRY; do
+  ENTRY_ID=$(echo "$ENTRY" | jq -r '.id')
   IDX=$(( i % AGENT_COUNT ))
 
   AGENT_PATH="${AGENT_PATHS[$IDX]}"
@@ -171,12 +123,12 @@ echo "$PENDING" | jq -c '.[]' | while read -r VTC; do
   FILE="${AGENT_FILES[$IDX]}"
   DIR="${AGENT_DIRS[$IDX]}"
 
-  # ← PRE-CLAIM: Call visual-run claim-next to get the entry
-  CLAIM_OUTPUT=$(noob-tester visual-run claim-next "$VISUAL_RUN_ID" 2>/dev/null)
+  # ← PRE-CLAIM: Transition entry to claimed status
+  CLAIM_OUTPUT=$(noob-tester visual-run entry-claim --run "$VISUAL_RUN_ID" --entry "$ENTRY_ID" 2>/dev/null)
   CLAIMED=$(echo "$CLAIM_OUTPUT" | jq -r '.claimed // false')
 
   if [ "$CLAIMED" != "true" ]; then
-    echo "  Warning: Could not claim visual test case '$TITLE' — skipping"
+    echo "  Warning: Could not claim entry '$ENTRY_ID' — skipping"
     i=$(( i + 1 ))
     continue
   fi
@@ -186,7 +138,7 @@ echo "$PENDING" | jq -c '.[]' | while read -r VTC; do
   echo "$CLAIM_OUTPUT" > "$CLAIM_FILE"
 
   # Build invocation for visual test with claim file
-  INVOCATION="run visual $MODE test for ticket $TICKET_ID, visual run $VISUAL_RUN_ID with agent @${AGENT_PATH}"
+  INVOCATION="run visual $MODE test for ticket $TICKET_ID, run $VISUAL_RUN_ID entry $ENTRY_ID with agent @${AGENT_PATH}"
   [ -n "$TARGET" ] && INVOCATION="$INVOCATION with target $TARGET"
   [ -n "$ROLE" ] && [ "$ROLE" != "default" ] && INVOCATION="$INVOCATION and role $ROLE"
   [ -n "$FILE" ] && INVOCATION="$INVOCATION and file $FILE"
@@ -202,7 +154,7 @@ if [ -f /tmp/pool-visual-launches.txt ]; then
   rm -f /tmp/pool-visual-launches.txt
 fi
 
-echo "Prepared ${#LAUNCHES[@]} agent invocations (all test cases pre-claimed)."
+echo "Prepared ${#LAUNCHES[@]} agent invocations (round-robin assigned and pre-claimed)."
 ```
 
 ---
@@ -244,25 +196,27 @@ Do **not** call `wait` — return to the user immediately after spawning. The ag
 
 Tell the user:
 
-- Visual run ID and mode (baseline / verification)
-- How many visual test cases were found and dispatched
+- Visual run ID and mode (baseline or verification)
+- How many pending visual test case entries were dispatched
+- How many agents were launched (capped at MAX_SPAWNS)
 - Which agent configs were used (round-robin distribution)
 - Whether config was pre-existing or newly registered
 - Whether any fields were updated before running
-- The dashboard URL to monitor: `http://localhost:4040` → Visual Runs
+- Dashboard URL to monitor: `http://localhost:4040` → Visual Runs
 
 ---
 
 ## Notes
 
-- **Pre-claimed entries** — the orchestrator pre-claims all test cases upfront using `visual-run claim-next` and saves the claim response to temp files. Each sub-agent reads its assigned claim file and uses the pre-claimed entry. No two agents compete for the same entry, so no races.
+- **Reuse existing visual run** — Step 2 retrieves the latest visual run for the ticket in the specified mode (baseline or verification, created via `noob-tester visual-run start`). If no run exists in that mode, the skill exits and asks the user to create one first.
+- **Mode parameter** — passed by the calling agent (e.g., `--mode baseline` or `--mode verification`). The mode determines which visual run to use and is stored on the `visual_runs` table.
+- **Pending entries only** — only entries with status `pending` are dispatched. Entries with status `running`, `passed`, `failed`, or `skipped` are skipped.
+- **Pre-claim atomic** — each agent is assigned one pending entry via round-robin. The entry is atomically claimed (status → `claimed`) before the agent is launched, preventing race conditions.
 - **Claim file format** — saved to `/tmp/pool-visual-claim-${i}.json` and contains the full entry data including visual_run_id, entry_id, test case details, and visual_steps config. Agents read this via the `CLAIM_FILE` path passed in invocation.
-- **Round-robin** — distributes visual test cases evenly across agent configs. With 2 configs and 6 test cases: config[0] gets TCs 0,2,4 — config[1] gets 1,3,5.
+- **Round-robin** — distributes pending entries evenly across agent configs. With 2 configs and 6 pending entries: config[0] gets entries 0,2,4 — config[1] gets 1,3,5.
 - **Agent path** — stored without `@` in the DB; prepend `@` in the `claude` invocation.
 - **Target** — a named reference in the `targets` table resolved at runtime by the sub-agent (not a raw URL).
 - **Role** — selects which credential set to inject from the `secrets` table for the given target.
 - **Missing agent file** — if a `.md` file doesn't exist on disk, warn the user and skip that config entry.
-- **Mode** — `baseline` captures reference screenshots; `verification` captures + diffs against baseline. A baseline run must complete before verification.
-- **Visual run completion** — the run stays open while agents execute. The last agent to finish processing its pre-claimed entry should call `visual-run complete` to finalize the run.
-- **MAX_SPAWNS** — caps how many agents are launched. Default 5. Remaining test cases stay unclaimed for a subsequent `/noob-visual-pool` invocation.
-- **Visual Run Check** — Step 2 checks the most recent visual run for already-claimed/done entries and filters them out, just like noob-pool checks run packs. This prevents re-dispatching test cases that are already in progress or completed.
+- **Mode semantics** — `baseline` captures reference screenshots; `verification` captures + diffs against baseline. A baseline run must complete before verification can run.
+- **MAX_SPAWNS** — caps how many agents are launched. Default 5. Remaining pending entries stay unclaimed for a subsequent `/noob-visual-pool` invocation.
